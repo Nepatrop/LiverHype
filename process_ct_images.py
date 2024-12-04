@@ -75,7 +75,7 @@ def adjust_contrast_brightness(image, alpha=1.3, beta=0.1):
 def adjust_gamma(image, gamma=1.0):
     return np.power(image, gamma)
 
-def process_image(image_path, model, threshold=0.5):
+def process_image(image_path, model, threshold=0.3):  
     if image_path.lower().endswith('.dcm'):
         dcm = pydicom.dcmread(image_path)
         image = dcm.pixel_array
@@ -107,10 +107,7 @@ def process_image(image_path, model, threshold=0.5):
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(16,16))
         image = clahe.apply(image_uint8).astype('float32') / 255.0
 
-    # поворачиваем на 90 градусов
     image = np.rot90(image)
-    
-    # отражаем по вертикали, чтобы печень оказалась сверху
     image = np.flipud(image)
     
     if image.shape != (512, 512):
@@ -122,23 +119,33 @@ def process_image(image_path, model, threshold=0.5):
     print(f"\nInput shape: {image.shape}")
     
     prediction = model.predict({'input_layer': image}, verbose=0)
-    prediction = np.squeeze(prediction)  # Убираем лишние размерности
+    prediction = np.squeeze(prediction)
+
+    binary_mask = (prediction > threshold).astype(np.uint8)
     
-    binary_mask = (prediction > threshold).astype(np.float32)
-    
-    # удаляем мелкие объекты и заполняем дырки
-    binary_mask = binary_mask.astype(np.uint8)
     num_labels, labels = cv2.connectedComponents(binary_mask)
     
-
     if num_labels > 1:
-        largest_label = 1 + np.argmax([np.sum(labels == i) for i in range(1, num_labels)])
-        binary_mask = (labels == largest_label).astype(np.float32)
+        sizes = [np.sum(labels == i) for i in range(1, num_labels)]
+        largest_label = 1 + np.argmax(sizes)
+        
+        max_size = max(sizes)
+        min_size = max_size * 0.05
+        
+        binary_mask = np.zeros_like(labels, dtype=np.float32)
+        for i in range(1, num_labels):
+            if sizes[i-1] >= min_size:
+                binary_mask += (labels == i).astype(np.float32)
     
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    binary_mask = cv2.morphologyEx(binary_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
-    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
-    binary_mask = binary_mask.astype(np.float32)
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    
+    binary_mask = cv2.morphologyEx(binary_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_close)
+    
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel_open)
+    
+    binary_mask = cv2.GaussianBlur(binary_mask.astype(np.float32), (5, 5), 0)
+    binary_mask = (binary_mask > 0.5).astype(np.float32)
     
     print("\nРезультаты предсказания:")
     print(f"Минимальное значение: {np.min(prediction):.4f}")
