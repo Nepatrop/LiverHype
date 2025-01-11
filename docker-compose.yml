@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - .:/app
+      - ./Anon_Liver:/app/Anon_Liver
+      - ./Processed_Images:/app/Processed_Images
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped

@@ -1,3 +1,8 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Отключаем предупреждения TensorFlow
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')  # Отключаем использование GPU
+
 from flask import Flask, request, jsonify, render_template
 import numpy as np
 import cv2
@@ -8,8 +13,19 @@ import base64
 
 app = Flask(__name__)
 
-model = unet_model()
-model.load_weights('unet_r.h5')
+# Проверка наличия файла модели
+model_path = 'unet_r.h5'
+if not os.path.exists(model_path):
+    print(f"ERROR: Model file {model_path} not found!")
+    raise FileNotFoundError(f"Model file {model_path} not found!")
+
+try:
+    model = unet_model()
+    model.load_weights(model_path)
+    print("Model loaded successfully!")
+except Exception as e:
+    print(f"ERROR loading model: {str(e)}")
+    raise
 
 def adjust_gamma(image, gamma=1.0):
     return np.power(image, gamma)
@@ -83,23 +99,31 @@ def validate_image(file):
 def process_image():
     try:
         if 'file' not in request.files:
+            print("No file uploaded")
             return jsonify({'error': 'No file uploaded'}), 400
 
         file = request.files['file']
         if file.filename == '':
+            print("No selected file")
             return jsonify({'error': 'No selected file'}), 400
 
+        print(f"Processing file: {file.filename}")
+        
         if not validate_image(file):
+            print(f"Invalid file format: {file.filename}")
             return jsonify({'error': 'Invalid file format'}), 400
 
         image = file.read()
         processed_image = preprocess_image(image)
 
         if processed_image is None:
+            print("Failed to process image")
             return jsonify({'error': 'Failed to process image'}), 400
 
+        print("Making prediction...")
         try:
             prediction = model.predict(processed_image)
+            print("Prediction successful!")
         except Exception as e:
             print(f"Model prediction error: {str(e)}")
             return jsonify({'error': 'Model prediction failed'}), 500
