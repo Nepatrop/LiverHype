@@ -1,11 +1,14 @@
 medpy
 joblib
-tensorflow
+tensorflow==2.6.0
 keras
 scikit-learn
 pandas
 pillow
 tqdm
-pydicom
+pydicom==2.2.2
 matplotlib
-numpy
+numpy==1.21.0
+Flask==2.0.1
+opencv-python-headless==4.5.3.56
+gunicorn==20.1.0

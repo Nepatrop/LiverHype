@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liver Segmentation Tool</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Arial', sans-serif;
+        }
+        .navbar {
+            background-color: #007bff;
+        }
+        .navbar-brand {
+            color: white !important;
+            font-weight: bold;
+        }
+        .container {
+            margin-top: 20px;
+            max-width: 1000px;
+        }
+        .upload-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .upload-section h2 {
+            color: #007bff;
+            margin-bottom: 20px;
+        }
+        .image-container {
+            margin-top: 20px;
+            text-align: center;
+            display: none;
+            width: 100%;
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        canvas {
+            border: 2px solid #007bff;
+            border-radius: 10px;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-save {
+            background-color: #28a745;
+            margin-top: 20px;
+            display: none;
+        }
+        .btn-save:hover {
+            background-color: #218838;
+        }
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        .tools-panel {
+            position: static;
+            margin: 20px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .tool-button {
+            margin: 0 5px;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .tool-button.active {
+            background-color: #007bff;
+            color: white;
+        }
+        .canvas-container {
+            margin: 0 auto !important;
+        }
+        .instructions {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            border-left: 4px solid #007bff;
+        }
+        .instructions h5 {
+            font-weight: 600;
+        }
+        .instructions ol {
+            padding-left: 1.2rem;
+        }
+        .instructions ul {
+            padding-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+        .instructions li {
+            margin-bottom: 0.5rem;
+        }
+        .instructions strong {
+            color: #007bff;
+        }
+    </style>
+    <!-- Fabric.js for image editing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.2.4/fabric.min.js"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Liver Segmentation Tool</a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="upload-section">
+            <h2>Загрузите КТ снимок</h2>
+            <input type="file" id="image-input" name="file" accept=".dcm" class="form-control mb-3">
+            <!-- Индикатор загрузки -->
+            <div id="loading-spinner" class="spinner-border text-primary" role="status" style="display: none;">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <!-- Добавляем панель инструментов -->
+            <div class="tools-panel">
+                <button class="btn btn-outline-primary tool-button" id="select-mask">Выбрать маску</button>
+                <button class="btn btn-outline-primary tool-button" id="lasso-tool">Нарисовать маску</button>
+                <button class="btn btn-outline-danger tool-button" id="clear-mask">Удалить маску</button>
+            </div>
+            <!-- Контейнер для изображения -->
+            <div class="image-container">
+                <canvas id="image-canvas"></canvas>
+            </div>
+            <!-- Кнопка сохранения -->
+            <button id="save-button" class="btn btn-save">Сохранить</button>
+
+            <!-- Добавляем инструкцию -->
+            <div class="instructions mt-4 p-3 bg-light rounded">
+                <h5 class="text-primary mb-3">Инструкция по использованию:</h5>
+                <ol class="text-muted">
+                    <li>Загрузите DICOM-изображение КТ</li>
+                    <li>Дождитесь автоматического определения контура печени</li>
+                    <li>Используйте инструменты для редактирования маски:
+                        <ul>
+                            <li><strong>Выбрать маску</strong> - позволяет перемещать и изменять размер маски</li>
+                            <li><strong>Нарисовать маску</strong> - позволяет нарисовать новую маску произвольной формы</li>
+                            <li><strong>Удалить маску</strong> - удаляет все маски с изображения</li>
+                        </ul>
+                    </li>
+                    <li>Нажмите <span style="color: #28a745">Сохранить</span> для скачивания результата</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        let canvas;
+        let originalImageObj;
+        let isDrawing = false;
+        let currentTool = 'select';
+        let points = [];
+        let canDraw = false;
+
+        function initCanvas(width, height) {
+            if (canvas) {
+                canvas.dispose();
+            }
+
+            canvas = new fabric.Canvas('image-canvas', {
+                width: width,
+                height: height,
+                selection: false
+            });
+
+            return canvas;
+        }
+
+        // Загрузка изображения и инициализация
+        document.getElementById('image-input').addEventListener('change', function(event) {
+            let file = event.target.files[0];
+            let formData = new FormData();
+            formData.append('file', file);
+
+            document.getElementById('loading-spinner').style.display = 'block';
+
+            if (canvas) {
+                canvas.clear();
+            }
+
+            fetch('/process', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading-spinner').style.display = 'none';
+                document.querySelector('.image-container').style.display = 'block';
+                document.querySelector('.tools-panel').style.display = 'block';
+                document.getElementById('save-button').style.display = 'block';
+
+                let originalImage = new Image();
+                originalImage.onload = function() {
+                    const targetWidth = 600;
+                    const scale = targetWidth / originalImage.width;
+                    const scaledWidth = originalImage.width * scale;
+                    const scaledHeight = originalImage.height * scale;
+
+                    canvas = initCanvas(scaledWidth, scaledHeight);
+
+                    // Добавляем оригинальное изображение
+                    originalImageObj = new fabric.Image(originalImage, {
+                        scaleX: scale,
+                        scaleY: scale,
+                        selectable: false,
+                        evented: false
+                    });
+                    canvas.add(originalImageObj);
+
+                    // Загружаем маску
+                    let mask = new Image();
+                    mask.onload = function() {
+                        let tempCanvas = document.createElement('canvas');
+                        let tempCtx = tempCanvas.getContext('2d');
+                        tempCanvas.width = mask.width;
+                        tempCanvas.height = mask.height;
+                        tempCtx.drawImage(mask, 0, 0);
+
+                        // Обрабатываем маску
+                        let imageData = tempCtx.getImageData(0, 0, mask.width, mask.height);
+                        let data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            if (data[i] === 0) {
+                                data[i + 3] = 0;
+                            } else {
+                                data[i] = data[i + 1] = data[i + 2] = 255; // делаем белым
+                            }
+                        }
+                        tempCtx.putImageData(imageData, 0, 0);
+
+                        let maskImage = new fabric.Image(tempCanvas, {
+                            scaleX: scale,
+                            scaleY: scale,
+                            opacity: 0.5,
+                            selectable: true,
+                            hasControls: true,
+                            hasBorders: true
+                        });
+
+                        canvas.add(maskImage);
+                        canvas.renderAll();
+
+                        setupCanvasEvents();
+                    };
+                    mask.src = data.mask_url;
+                };
+                originalImage.src = data.original_url;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('loading-spinner').style.display = 'none';
+            });
+        });
+
+        function setupCanvasEvents() {
+            canvas.on('mouse:down', function(options) {
+                if (currentTool === 'lasso' && canDraw) {
+                    isDrawing = true;
+                    points = [];
+                    const pointer = canvas.getPointer(options.e);
+                    points.push(pointer);
+                    
+                    let circle = new fabric.Circle({
+                        radius: 1,
+                        fill: 'red',
+                        left: pointer.x,
+                        top: pointer.y,
+                        selectable: false
+                    });
+                    
+                    canvas.add(circle);
+                    canvas.renderAll();
+                }
+            });
+
+            canvas.on('mouse:move', function(options) {
+                if (isDrawing && currentTool === 'lasso') {
+                    const pointer = canvas.getPointer(options.e);
+                    points.push(pointer);
+
+                    let line = new fabric.Line([
+                        points[points.length-2].x, 
+                        points[points.length-2].y, 
+                        pointer.x, 
+                        pointer.y
+                    ], {
+                        stroke: 'red',
+                        strokeWidth: 2,
+                        selectable: false
+                    });
+
+                    canvas.add(line);
+                    canvas.renderAll();
+                }
+            });
+
+            canvas.on('mouse:up', function() {
+                if (isDrawing && currentTool === 'lasso' && canDraw) {
+                    isDrawing = false;
+                    if (points.length > 2) {
+                        points.push(points[0]);
+
+                        let polygon = new fabric.Polygon(points, {
+                            fill: 'rgba(255, 255, 255, 0.5)',
+                            stroke: 'white',
+                            strokeWidth: 2,
+                            selectable: true,
+                            hasControls: true,
+                            hasBorders: true
+                        });
+
+                        canvas.getObjects().forEach(obj => {
+                            if (obj !== originalImageObj && !(obj instanceof fabric.Polygon)) {
+                                canvas.remove(obj);
+                            }
+                        });
+
+                        canvas.add(polygon);
+                        canvas.renderAll();
+                        
+                        canDraw = false;
+                        currentTool = 'select';
+                        updateToolButtons();
+                    }
+                    points = [];
+                }
+            });
+        }
+
+        document.getElementById('select-mask').onclick = function() {
+            currentTool = 'select';
+            canDraw = false;
+            updateToolButtons();
+            canvas.getObjects().forEach(obj => {
+                if (obj !== originalImageObj) {
+                    obj.selectable = true;
+                }
+            });
+            canvas.renderAll();
+        };
+
+        document.getElementById('lasso-tool').onclick = function() {
+            currentTool = 'lasso';
+            canDraw = true;
+            updateToolButtons();
+            canvas.getObjects().forEach(obj => {
+                if (obj !== originalImageObj) {
+                    obj.selectable = false;
+                }
+            });
+            canvas.renderAll();
+        };
+
+        function updateToolButtons() {
+            document.querySelectorAll('.tool-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (currentTool === 'select') {
+                document.getElementById('select-mask').classList.add('active');
+            } else if (currentTool === 'lasso') {
+                document.getElementById('lasso-tool').classList.add('active');
+            }
+        }
+
+        document.getElementById('clear-mask').onclick = function() {
+            canvas.getObjects().slice().forEach(obj => {
+                if (obj !== originalImageObj) {
+                    canvas.remove(obj);
+                }
+            });
+            canvas.renderAll();
+        };
+
+        document.getElementById('save-button').addEventListener('click', function() {
+            let dataURL = canvas.toDataURL({
+                format: 'png',
+                quality: 1
+            });
+            let link = document.createElement('a');
+            link.download = 'segmented_image.png';
+            link.href = dataURL;
+            link.click();
+        });
+
+        window.addEventListener('resize', function() {
+            if (canvas && originalImageObj) {
+                const targetWidth = 600;
+                const scale = targetWidth / originalImageObj.width;
+                
+                canvas.setWidth(originalImageObj.width * scale);
+                canvas.setHeight(originalImageObj.height * scale);
+                canvas.setZoom(scale);
+                
+                canvas.getObjects().forEach(obj => {
+                    obj.scaleX = scale;
+                    obj.scaleY = scale;
+                    obj.setCoords();
+                });
+                
+                canvas.renderAll();
+            }
+        });
+    </script>
+</body>
+</html>
